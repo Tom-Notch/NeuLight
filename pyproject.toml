@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neulight"
+authors = [
+    { name = "Mukai (Tom Notch) Yu", email = "mukai.yu@tomnotch.com" },
+]
+version = "0.1.0"
+description = "Neural Light Field."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+
+dependencies = [
+    "cachetools",
+    "decorator>=4.0.2,<5.0",
+    "icecream",
+    "Imath",
+    "ipywidgets",
+    "lightning",
+    "matplotlib",
+    "multimethod",
+    "numpy<2",
+    "open3d",
+    "opencv-python",
+    "OpenEXR",
+    "opt_einsum",
+    "pillow",
+    "pyhocon",
+    "PyMCubes",
+    "python-magic",
+    "pytorch3d @ git+https://github.com/facebookresearch/pytorch3d.git@stable",
+    "pyyaml",
+    "scipy",
+    "toml",
+    "torch",
+    "torchvision",
+    "trimesh",
+    "wandb",
+]
+
+[project.optional-dependencies]
+full = ["manim", "torchviz", "pytorch-memlab"]
+
+[project.urls]
+Repository = "https://github.com/Tom-Notch/NeuLight.git"
+Issues = "https://github.com/Tom-Notch/NeuLight/issues"
+
+[project.scripts]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["neulight", "neulight.*"]
