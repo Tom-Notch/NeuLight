@@ -185,7 +185,7 @@ class FreeViewpointDataset(Dataset):
 
         # 3) directions in camera coords (camera looks down –Z)
         x_camera = (xs - cx) / f
-        y_camera = (ys - cy) / f
+        y_camera = (cy - ys) / f  # ys is top to bottom
         z_camera = -torch.ones_like(x_camera)
         directions_camera = torch.stack(
             [x_camera, y_camera, z_camera], dim=-1

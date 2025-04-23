@@ -11,10 +11,14 @@ import contextlib
 import os
 import sys
 from typing import Optional
+from typing import Union
 
 import numpy as np
 import open3d as o3d
+import torch
 from open3d.visualization import rendering
+
+from neulight.utils.torch_numpy import to_numpy
 
 
 os.environ["EGL_PLATFORM"] = "surfaceless"
@@ -35,9 +39,10 @@ def _suppress_driver_logs():
             sys.stdout, sys.stderr = old_out, old_err
 
 
-def visualize_point_cloud(
-    point_cloud: PointCloud,
-    point_size: float = 10.0,
+def visualize_rays(
+    rays: Union[np.ndarray, torch.Tensor],
+    colors: Optional[Union[np.ndarray, torch.Tensor]] = None,
+    ray_length: float = 2.0,
     interactive: bool = True,
     image_size: tuple[int, int] = (800, 600),
     look_at: Optional[np.ndarray] = None,
@@ -47,18 +52,12 @@ def visualize_point_cloud(
     show_axis: bool = True,
 ) -> Optional[np.ndarray]:
     """
-    Visualize a PointCloud data using Open3D.
-
-    The PointCloud has:
-      - value (N, 3): point colors in [0..255] for each of N points.
-      - vec (N, 3): Point coordinates in Cartesian coordinates.
-
-    This function displays a point cloud whose points are given by vec and whose colors (normalized to [0,1]) are updated for each frame.
-    The function is written in a pure functional style: it does not modify the input instance.
+    Visualize ray bundle.
 
     Args:
-        point_cloud (PointCloud): Anything that can be converted to a PointCloud
-        point_size (float, optional): Size of points in the visualization. Defaults to 2.0.
+        rays (np.ndarray): Ray bundle in shape (..., 6)
+        colors (np.ndarray, optional): Colors of the rays in shape (..., 3). Defaults to None.
+        ray_length (float, optional): Length of the rays. Defaults to 2.0.
         interactive (bool, optional): Whether to use interactive rendering. Defaults to True.
         image_size (tuple[int, int], optional): Size of the image to render. Defaults to (800, 600).
         look_at (np.ndarray, optional): Center of the camera. Defaults to (0, 0, 0).
@@ -69,29 +68,45 @@ def visualize_point_cloud(
     Returns:
         Optional[np.ndarray]: The rendered image if static is True, otherwise None.
     """
-    _point_cloud = point_cloud.to_numpy().copy()
 
-    colors = _point_cloud.value
-    num_raw_input_channels = colors.shape[-1]
-    assert (
-        num_raw_input_channels == 1 or num_raw_input_channels == 3
-    ), f"Expect # channel to be 1 or 3, but got {num_raw_input_channels}"
-    if num_raw_input_channels == 1:
-        colors = np.repeat(colors, 3, axis=-1)
+    _rays = to_numpy(rays).copy().reshape(-1, 6)
+    N = _rays.shape[0]
+
+    origins = _rays[:, :3]  # (N, 3)
+    directions = _rays[:, 3:]  # (N, 3)
+    ends = (
+        origins
+        + directions / np.linalg.norm(directions, axis=1, keepdims=True) * ray_length
+    )  # (N, 3)
+
+    points = np.vstack([origins, ends])  # (2N, 3)
+    lines = [[i, i + N] for i in range(N)]
+
+    # Normalize colors to [0,1]
+    if colors is None:
+        colors = np.ones((N, 3)) * 0.5  # Gray
+    else:
+        colors = to_numpy(colors).copy().reshape(-1, 3)  # (N, 3)
+
+    _colors = colors.astype(np.float64)
+    if _colors.max() > 1.0:
+        _colors = _colors / 255.0
+
+    assert _rays.shape[0] == _colors.shape[0], "# rays and # colors mismatch"
+
+    line_colors = _colors.tolist()
+
+    # Create LineSet
+    line_set = o3d.geometry.LineSet()
+    line_set.points = o3d.utility.Vector3dVector(points)
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+    line_set.colors = o3d.utility.Vector3dVector(line_colors)
 
     if look_at is None:
-        look_at = _point_cloud.vec.mean(axis=0)
+        look_at = origins.mean(axis=0)
 
     if front is None:
         front = np.array([-1, 0, -1])
-
-    # Precompute normalized colors once (convert from [0, 255] to [0, 1]).
-    colors = colors.astype(np.float64) / 255.0
-
-    # Create the point cloud and set its points once.
-    pcd = o3d.geometry.PointCloud()
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-    pcd.points = o3d.utility.Vector3dVector(_point_cloud.vec)
 
     camera_front = -front
 
@@ -100,7 +115,7 @@ def visualize_point_cloud(
         vis = o3d.visualization.Visualizer()
         vis.create_window()
 
-        vis.add_geometry(pcd)
+        vis.add_geometry(line_set)
 
         if show_axis:
             vis.add_geometry(
@@ -109,8 +124,6 @@ def visualize_point_cloud(
 
         render_option = vis.get_render_option()
         render_option.background_color = np.asarray([1.0, 1.0, 1.0])  # White background
-        render_option.point_size = point_size
-        render_option.light_on = False
 
         # Basic camera setup
         view_control = vis.get_view_control()
@@ -144,9 +157,9 @@ def visualize_point_cloud(
         scene.clear_geometry()
 
         material = rendering.MaterialRecord()
-        material.shader = "defaultUnlit"
-        material.point_size = point_size
-        scene.add_geometry("point cloud", pcd, material)
+        material.shader = "unlitLine"
+        material.line_width = ray_length
+        scene.add_geometry("ray bundle", line_set, material)
 
         if show_axis:
             scene.show_axes(True)
