@@ -4,9 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neulight"
-authors = [
-    { name = "Mukai (Tom Notch) Yu", email = "mukai.yu@tomnotch.com" },
-]
+authors = [{ name = "Mukai (Tom Notch) Yu", email = "mukai.yu@tomnotch.com" }]
 version = "0.1.0"
 description = "Neural Light Field."
 readme = "README.md"
@@ -38,6 +36,7 @@ dependencies = [
     "torch",
     "torchvision",
     "trimesh",
+    "visdom",
     "wandb",
 ]
 
@@ -49,6 +48,7 @@ Repository = "https://github.com/Tom-Notch/NeuLight.git"
 Issues = "https://github.com/Tom-Notch/NeuLight/issues"
 
 [project.scripts]
+neus = "neulight.neus:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

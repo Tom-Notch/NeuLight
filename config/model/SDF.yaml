@@ -1,0 +1,6 @@
+%YAML 1.2
+---
+num_harmonic_levels: 8
+hidden_dims: [128, 128, 128, 128]
+skip_connections: true
+activation: ReLU

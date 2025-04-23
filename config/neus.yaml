@@ -1,0 +1,39 @@
+%YAML 1.2
+---
+model:
+    lr: 0.01
+
+    num_vis: 8 # number of image to visualize in every validation epoch
+
+    alpha: 1.0
+    beta: 0.05
+    eikonal_loss_weight: 1.0
+
+    geometry_bound: [-10.0, -10.0, -10.0, 10.0, 10.0, 10.0]
+
+    ray_sampler:
+        num_points_per_ray: 64
+        max_distance: 10.0
+
+    SDF: ./model/SDF.yaml
+    emission: ./model/emission.yaml
+
+dataloader:
+    scene_path: ../data/neulight/Salon2
+    num_workers: 4
+    batch_size: 8
+    num_rays_per_image: 1024
+    visualize_image_shape: [480, 640]
+
+trainer:
+    accelerator: gpu
+    devices: -1
+    max_epochs: 200
+    log_every_n_steps: 10
+    num_sanity_val_steps: 0
+    profiler: simple
+
+wandb_logger:
+    name: NeuS
+    entity: tomnotch
+    project: NeuLight
