@@ -57,17 +57,20 @@ def count_layers(model: nn.Module, layer_type: type) -> int:
 
 
 @multimethod
-def detect_nan(x: torch.Tensor, variable_name: str) -> None:
+def detect_nan(x: torch.Tensor, variable_name: str) -> Optional[bool]:
     if torch.isnan(x).any():
-        nan_indices = torch.nonzero(torch.isnan(x))
-        print(f"{variable_name} contains nan at indices:\n{nan_indices.tolist()}")
+        # nan_indices = torch.nonzero(torch.isnan(x))
+        # print(f"{variable_name} contains nan at indices:\n{nan_indices.tolist()}")
+        print(f"{variable_name} contains nan")
+        return True
 
 
 @multimethod
 def detect_nan(x: np.ndarray, variable_name: str) -> Optional[bool]:
     if np.isnan(x).any():
-        nan_indices = np.argwhere(np.isnan(x))
-        print(f"{variable_name} contains nan at indices:\n{nan_indices.tolist()}")
+        # nan_indices = np.argwhere(np.isnan(x))
+        # print(f"{variable_name} contains nan at indices:\n{nan_indices.tolist()}")
+        print(f"{variable_name} contains nan")
         return True
 
 

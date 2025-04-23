@@ -686,3 +686,7 @@ data
 
 # Profile
 notebook/*.json
+
+# Checkpoints
+**/checkpoints
+**/checkpoints/*

@@ -1,0 +1,20 @@
+%YAML 1.2
+---
+lr: 0.005
+
+num_vis: 8 # number of image to visualize in every validation epoch
+
+alpha: 10.0
+beta: 0.05
+eikonal_loss_weight: 0.02
+
+geometry_bound: [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0] # note that this is after normalization
+normalize_factor: 20.0 # normalize before feeding into SDF network
+
+ray_sampler:
+    num_points_per_ray: 128
+    max_distance: 40.0 # before normalization
+
+SDF: ./model/SDF.yaml
+emission: ./model/emission.yaml
+# checkpoint: ../checkpoints/neus/epoch=199-step=2200.ckpt

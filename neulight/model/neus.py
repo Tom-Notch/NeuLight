@@ -23,6 +23,7 @@ from torch.utils.checkpoint import checkpoint_sequential
 from neulight.model.emission import Emission
 from neulight.model.SDF import SDF
 from neulight.utils.ray_sampler import RaySampler
+from neulight.utils.torch_numpy import detect_nan
 
 
 class NeuSLightningModel(pl.LightningModule):
@@ -39,11 +40,12 @@ class NeuSLightningModel(pl.LightningModule):
         self.alpha = config["alpha"]
         self.beta = config["beta"]
         self.eikonal_loss_weight = config["eikonal_loss_weight"]
+        self.normalize_factor = config["normalize_factor"]
 
         self.register_buffer("geometry_bound", torch.Tensor(config["geometry_bound"]))
 
         if config.get("checkpoint", None) is not None:
-            self.load_state_dict(config["state_dict"])
+            self.load_state_dict(config["checkpoint"]["state_dict"])
 
     @staticmethod
     def sample_random_points(
@@ -85,29 +87,51 @@ class NeuSLightningModel(pl.LightningModule):
         rays = batch["rays"]  # (..., 6)
         device = rays.device
 
-        points = self.ray_sampler(rays)  # (..., num_points_per_ray, 3)
+        detect_nan(rays, "rays")
 
-        sdf = self.SDF(points)  # (..., num_points_per_ray, 1)
+        points = self.ray_sampler(rays)  # (..., num_points_per_ray, 3)
+        normalized_points = points / self.normalize_factor
+
+        detect_nan(normalized_points, "normalized points")
+
+        sdf = self.SDF(normalized_points)  # (..., num_points_per_ray, 1)
+
+        detect_nan(sdf, "sdf")
 
         density = self.sdf_to_density(
             sdf, self.alpha, self.beta
         )  # (..., num_points_per_ray, 1)
 
+        detect_nan(density, "density")
+
         directions = (
-            rays[..., 3:].unsqueeze(-2).expand_as(points)
+            rays[..., 3:].unsqueeze(-2).expand_as(normalized_points)
         )  # (..., num_points_per_ray, 3)
 
-        rgb = self.emission(points, directions)  # (..., num_points_per_ray, 3)
+        detect_nan(directions, "directions")
+
+        rgb = self.emission(
+            normalized_points, directions
+        )  # (..., num_points_per_ray, 3)
+
+        detect_nan(rgb, "rgb")
 
         delta = torch.norm(
-            points[..., 1:, :] - points[..., :-1, :], dim=-1, keepdim=True
+            normalized_points[..., 1:, :] - normalized_points[..., :-1, :],
+            dim=-1,
+            keepdim=True,
         )  # (..., num_points_per_ray - 1, 1)
         delta = torch.cat(
             [delta, torch.tensor([1e10], device=device).expand_as(delta[..., :1, :])],
             dim=-2,
         )  # (..., num_points_per_ray, 1)
 
+        detect_nan(delta, "delta")
+
         exponents = density * delta  # (..., num_points_per_ray, 1)
+
+        detect_nan(exponents, "exponents")
+
         cumulative_exponents = torch.cumsum(
             exponents, dim=-2
         )  # (..., num_points_per_ray, 1)
@@ -119,15 +143,25 @@ class NeuSLightningModel(pl.LightningModule):
             dim=-2,
         )  # prepend 0 since T = 1 for the first segments, shape: (..., num_points_per_ray + 1, 1)
 
+        detect_nan(shifted_cumulative_exponents, "shifted cumulative exponents")
+
         transmittance = torch.exp(
             -shifted_cumulative_exponents
         )  # (..., num_points_per_ray + 1, 1)
 
+        detect_nan(transmittance, "transmittance")
+
         alpha = 1 - torch.exp(-exponents)  # (..., num_points_per_ray, 1)
+
+        detect_nan(alpha, "alpha")
 
         weights = transmittance[..., :-1, :] * alpha  # (..., num_points_per_ray, 1)
 
+        detect_nan(weights, "weights")
+
         colors = (weights * rgb).sum(dim=-2)  # (..., 3)
+
+        detect_nan(colors, "predicted colors")
 
         return {"colors": colors}
 
@@ -153,7 +187,9 @@ class NeuSLightningModel(pl.LightningModule):
             num_points=num_points,
             bounds=self.geometry_bound,
         )
+        detect_nan(random_points, "random points")
         gradients = self.SDF.gradient(random_points)
+        detect_nan(gradients, "SDF gradients")
         eikonal_loss = ((gradients.norm(dim=-1) - 1.0) ** 2).mean()
 
         loss = photometric_loss + self.eikonal_loss_weight * eikonal_loss
