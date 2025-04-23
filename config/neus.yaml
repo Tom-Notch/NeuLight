@@ -5,8 +5,8 @@ model: ./model/neus.yaml
 dataloader:
     scene_path: ../data/neulight/Salon2
     num_workers: 4
-    batch_size: 1
-    num_rays_per_image: 20000
+    batch_size: 2
+    num_rays_per_image: 10000
     visualize_image_shape: [480, 640]
 
 trainer:

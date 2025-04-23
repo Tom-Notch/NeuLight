@@ -87,8 +87,6 @@ class NeuSLightningModel(pl.LightningModule):
         rays = batch["rays"]  # (..., 6)
         device = rays.device
 
-        detect_nan(rays, "rays")
-
         points = self.ray_sampler(rays)  # (..., num_points_per_ray, 3)
         normalized_points = points / self.normalize_factor
 

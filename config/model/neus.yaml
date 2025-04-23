@@ -14,7 +14,8 @@ normalize_factor: 20.0 # normalize before feeding into SDF network
 ray_sampler:
     num_points_per_ray: 128
     max_distance: 40.0 # before normalization
+    perturb: true # perturb points along the ray
 
-SDF: ./model/SDF.yaml
-emission: ./model/emission.yaml
-# checkpoint: ../checkpoints/neus/epoch=199-step=2200.ckpt
+SDF: ./SDF.yaml
+emission: ./emission.yaml
+# checkpoint: ../../checkpoints/neus/epoch=8-step=729.ckpt
