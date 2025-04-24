@@ -1,11 +1,11 @@
 %YAML 1.2
 ---
-lr: 0.005
+lr: 0.001
 
-num_vis: 8 # number of image to visualize in every validation epoch
+num_vis: -1 # number of image to visualize in every validation epoch
 
 alpha: 10.0
-beta: 0.05
+beta: 0.01  # controls geometry sharpness, smaller leads to sharper surface
 eikonal_loss_weight: 0.02
 
 geometry_bound: [-1.0, -1.0, -1.0, 1.0, 1.0, 1.0] # note that this is after normalization
@@ -18,4 +18,4 @@ ray_sampler:
 
 SDF: ./SDF.yaml
 emission: ./emission.yaml
-# checkpoint: ../../checkpoints/neus/epoch=8-step=729.ckpt
+checkpoint: ../../checkpoints/neus/epoch=199-step=8200.ckpt

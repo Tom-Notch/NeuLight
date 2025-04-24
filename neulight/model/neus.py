@@ -7,11 +7,15 @@
 #
 # Copyright Ⓒ 2025 Mukai (Tom Notch) Yu
 #
+import math
 from collections import OrderedDict
 from typing import Any
 from typing import List
 from typing import Optional
+from typing import Tuple
 
+import mcubes
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -24,6 +28,7 @@ from neulight.model.emission import Emission
 from neulight.model.SDF import SDF
 from neulight.utils.ray_sampler import RaySampler
 from neulight.utils.torch_numpy import detect_nan
+from neulight.utils.torch_numpy import to_numpy
 
 
 class NeuSLightningModel(pl.LightningModule):
@@ -60,6 +65,45 @@ class NeuSLightningModel(pl.LightningModule):
             + min_bound
         )
 
+    def normal(self, points: torch.Tensor) -> torch.Tensor:
+        """Query SDF to get the unit norm at points
+
+        Args:
+            points (torch.Tensor): in shape (..., 3)
+
+        Returns:
+            torch.Tensor: unit norm in shape (..., 3)
+        """
+        normalized_points = points / self.normalize_factor
+        gradient = self.SDF.gradient(normalized_points)
+
+        return F.normalize(gradient, p=2, dim=-1)
+
+    def sphere_tracing(
+        self, rays: torch.Tensor, num_steps: int = 100
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Sphere tracing with rays
+
+        Args:
+            rays (torch.Tensor): in shape [..., 6]
+            num_steps (int): maximum # steps
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: points in shape [..., 3], mask in shape [...,]
+        """
+        normalized_origins = rays[..., :3] / self.normalize_factor
+        normalized_rays = torch.cat([normalized_origins, rays[..., 3:]], dim=-1)
+
+        normalized_points, mask = self.SDF.sphere_trace(
+            normalized_rays.view(-1, 6),
+            num_steps=num_steps,
+            max_dist=self.ray_sampler.max_distance / self.normalize_factor,
+        )
+
+        points = normalized_points * self.normalize_factor
+
+        return points.view(*rays.shape[:-1], 3), mask.view(*rays.shape[:-1])
+
     @staticmethod
     def sdf_to_density(
         sdf: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor
@@ -83,9 +127,77 @@ class NeuSLightningModel(pl.LightningModule):
             1 - 0.5 * torch.exp(-s / beta),
         )
 
-    def forward(self, batch: dict) -> dict:
-        rays = batch["rays"]  # (..., 6)
-        device = rays.device
+    @torch.no_grad()
+    def extract_geometry(self, resolution: int = 256) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Extract a mesh from the learned SDF via Marching Cubes
+        """
+        # 1) pull bounds (normalized SDF domain) as a torch tensor
+        #    geometry_bound = [xmin,ymin,zmin, xmax,ymax,zmax]
+        b = self.geometry_bound  # Tensor on CPU/GPU
+        xmin, ymin, zmin, xmax, ymax, zmax = b
+
+        # 2) make 1D linspaces in torch
+        xs = torch.linspace(xmin, xmax, resolution, device=b.device, dtype=b.dtype)
+        ys = torch.linspace(ymin, ymax, resolution, device=b.device, dtype=b.dtype)
+        zs = torch.linspace(zmin, zmax, resolution, device=b.device, dtype=b.dtype)
+
+        # 3) build the (res^3,3) grid of normalized coords
+        grid = torch.stack(
+            torch.meshgrid(xs, ys, zs, indexing="ij"), dim=-1
+        )  # (R,R,R,3)
+        pts = grid.view(-1, 3)  # (R^3, 3)
+
+        # 4) eval SDF in one big batch (or chunk it if too big)
+        signed_distance = self.SDF(pts).view(resolution, resolution, resolution)
+        signed_distance_np = to_numpy(signed_distance)
+
+        # 5) Marching cubes on the NumPy array
+        verts_idx, faces = mcubes.marching_cubes(signed_distance_np, 0.0)
+
+        # 6) convert index‐space verts → normalized coords
+        scale = np.array(
+            [
+                (xmax.item() - xmin.item()) / (resolution - 1),
+                (ymax.item() - ymin.item()) / (resolution - 1),
+                (zmax.item() - zmin.item()) / (resolution - 1),
+            ],
+            dtype=np.float32,
+        )
+        min_b = np.array([xmin.item(), ymin.item(), zmin.item()], dtype=np.float32)
+
+        verts_norm = verts_idx.astype(np.float32) * scale + min_b
+
+        # 7) undo normalize_factor → world coords
+        verts_world = verts_norm * self.normalize_factor
+
+        return verts_world, faces
+
+    def chunk_forward(self, rays: torch.Tensor, chunk_size: int) -> torch.Tensor:
+        """chunked forward
+
+        Args:
+            rays (torch.Tensor): in shape (..., 6)
+
+        Returns:
+            torch.Tensor: colors in shape (..., 3)
+        """
+        _rays = rays.view(-1, 6)
+
+        # chunk the rays
+        num_chunks = math.ceil(_rays.shape[0] // chunk_size)
+        ray_chunks = torch.chunk(_rays, num_chunks, dim=0)
+
+        rendered_colors = []
+        for ray_chunk in ray_chunks:
+            rendered_colors.append(self(ray_chunk))
+
+        colors = torch.cat(rendered_colors, dim=0).view(*rays.shape[:-1], 3)
+
+        return colors
+
+    def forward(self, rays: torch.Tensor) -> torch.Tensor:
+        device = rays.device  # (..., 6)
 
         points = self.ray_sampler(rays)  # (..., num_points_per_ray, 3)
         normalized_points = points / self.normalize_factor
@@ -119,8 +231,14 @@ class NeuSLightningModel(pl.LightningModule):
             dim=-1,
             keepdim=True,
         )  # (..., num_points_per_ray - 1, 1)
+        last_step = (
+            self.ray_sampler.max_distance / self.normalize_factor
+        ) / self.ray_sampler.num_points_per_ray
         delta = torch.cat(
-            [delta, torch.tensor([1e10], device=device).expand_as(delta[..., :1, :])],
+            [
+                delta,
+                torch.tensor([last_step], device=device).expand_as(delta[..., :1, :]),
+            ],
             dim=-2,
         )  # (..., num_points_per_ray, 1)
 
@@ -161,7 +279,7 @@ class NeuSLightningModel(pl.LightningModule):
 
         detect_nan(colors, "predicted colors")
 
-        return {"colors": colors}
+        return colors
 
     def loss(
         self,
@@ -197,9 +315,10 @@ class NeuSLightningModel(pl.LightningModule):
     def training_step(
         self, batch: dict, batch_idx: int, dataloader_idx: int = 0
     ) -> torch.Tensor:
-        batch_size = batch["inputs"]["rays"].shape[0]
+        rays = batch["inputs"]["rays"]
+        batch_size = rays.shape[0]
 
-        batch["predicts"] = self(batch["inputs"])
+        batch["predicts"] = {"colors": self(rays)}
 
         loss = self.loss(
             predict_colors=batch["predicts"]["colors"],
@@ -225,18 +344,15 @@ class NeuSLightningModel(pl.LightningModule):
 
         # visualize ground truth and predicts
         if batch_idx == 0 and self.logger is not None:
-            # chunk the rays
             rays = batch["inputs"]["rays"]
             batch_size = rays.shape[0]
-            rays = rays.view(batch_size, -1, 6)
-            num_chunks = rays.shape[1] // dataset.num_rays_per_image
-            chunks = torch.chunk(rays, num_chunks, dim=1)
 
-            rendered_colors = []
-            for chunk in chunks:
-                rendered_colors.append(self({"rays": chunk})["colors"])
-
-            batch["predicts"] = {"colors": torch.cat(rendered_colors, dim=1)}
+            batch["predicts"] = {
+                "colors": self.chunk_forward(
+                    rays,
+                    chunk_size=batch_size * dataset.num_rays_per_image,
+                )
+            }
 
             rendered_images = dataset.visualize_batch(
                 batch={

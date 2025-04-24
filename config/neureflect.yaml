@@ -1,0 +1,23 @@
+%YAML 1.2
+---
+model: ./model/neureflect.yaml
+
+dataloader:
+    scene_path: ../data/neulight/Salon2
+    num_workers: 4
+    batch_size: 2
+    num_rays_per_image: 10000
+    visualize_image_shape: [480, 640]
+
+trainer:
+    accelerator: gpu
+    devices: -1
+    max_epochs: 200
+    log_every_n_steps: 10
+    num_sanity_val_steps: 0
+    profiler: simple
+
+wandb_logger:
+    name: NeuReflect
+    entity: tomnotch
+    project: NeuLight

@@ -1,0 +1,9 @@
+%YAML 1.2
+---
+num_positional_levels: 6
+num_normal_levels: 6
+num_directional_levels: 6
+
+hidden_dims: [256, 256, 256, 256, 256, 256]
+skip_connections: true
+activation: ReLU

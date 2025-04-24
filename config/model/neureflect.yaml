@@ -1,0 +1,9 @@
+%YAML 1.2
+---
+lr: 0.001
+
+num_vis: -1 # number of image to visualize in every validation epoch
+
+neus: ./neus.yaml
+
+BRDF: ./BRDF.yaml
