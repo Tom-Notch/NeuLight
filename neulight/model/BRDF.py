@@ -66,4 +66,4 @@ class BRDF(nn.Module):
         wi_e = self.directional_embedding(wi)
         wo_e = self.directional_embedding(wo)
         h = torch.cat([p_e, n_e, wi_e, wo_e], dim=-1)
-        return self.net(h)  # (...,3) RGB reflectance in [0,1]
+        return self.net(h)  # (..., 3) RGB reflectance in [0,1]

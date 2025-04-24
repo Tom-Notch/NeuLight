@@ -70,17 +70,18 @@ class SDF(nn.Module):
         Returns:
             grads (torch.Tensor): (..., 3)
         """
-        x = x.clone().detach().requires_grad_(True)
-        y = self(x)
+        with torch.enable_grad():
+            x = x.clone().detach().requires_grad_(True)
+            y = self(x)
 
-        # grad_outputs ones ensures ∂y/∂x has the same shape
-        grads = torch.autograd.grad(
-            outputs=y,
-            inputs=x,
-            grad_outputs=torch.ones_like(y),
-            create_graph=True,
-            retain_graph=True,
-        )[0]
+            # grad_outputs ones ensures ∂y/∂x has the same shape
+            grads = torch.autograd.grad(
+                outputs=y,
+                inputs=x,
+                grad_outputs=torch.ones_like(y),
+                create_graph=True,
+                retain_graph=True,
+            )[0]
 
         return grads
 
@@ -90,7 +91,7 @@ class SDF(nn.Module):
         rays: torch.Tensor,
         num_steps: int = 100,
         epsilon: float = 1e-4,
-        max_dist: float = 100.0,
+        max_distance: float = 40.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Basic sphere-tracing: march along each ray until |SDF|<epsilon.
@@ -99,7 +100,7 @@ class SDF(nn.Module):
             rays (torch.Tensor): (N, 6)
             num_steps (int): max iterations
             epsilon (float): stop threshold on |SDF|
-            max_dist (float): clamp total travel distance
+            max_distance (float): clamp total travel distance
 
         Returns:
             hit_pts (torch.Tensor): (N,3) final sample positions
@@ -108,32 +109,40 @@ class SDF(nn.Module):
         N = rays.shape[0]
         device = rays.device
 
-        rays_o = rays[:, :3]
-        rays_d = rays[:, 3:]
+        origins = rays[:, :3]
+        directions = rays[:, 3:]
 
         # current travel distance along ray
         t = torch.zeros(N, device=device)
-        # initialize points = origin
-        points = rays_o.clone()
 
-        converged = torch.zeros(N, dtype=torch.bool, device=device)
+        # Boolean mask for rays that have converged (hit the surface)
+        converged = torch.zeros((N,), dtype=torch.bool, device=device)
 
         for _ in range(num_steps):
-            signed_distance = self(points).unsqueeze(-1)  # (N, 1)
+            points = origins + t.unsqueeze(-1) * directions
+
+            signed_distance = self(points).squeeze(-1)  # (N,)
+
+            # Determine which active rays have reached the surface (within eps)
+            hit = signed_distance.abs() < epsilon
+
+            # Only update the mask for rays that are still active (haven't converged and t < max_distance)
+            active = (t < max_distance) & (~converged)
+            # For active rays, if they now satisfy the hit condition, mark them as converged.
+            converged = converged | (active & hit)
 
             # mark those now within epsilon
             converged_now = signed_distance.abs() < epsilon
             converged = converged | converged_now
 
-            # step only the unconverged rays
-            step = torch.clamp(signed_distance, min=epsilon)  # avoid zero-step
-            t = t + step
-            t = torch.clamp(t, max=max_dist)
-
-            points = rays_o + t.unsqueeze(-1) * rays_d
+            t = torch.where(active & (~hit), t + signed_distance, t)
+            t = torch.clamp(t, min=0, max=max_distance)
 
             # early exit if all converged
-            if converged.all():
+            if (~(converged | (t >= max_distance))).sum() == 0:
                 break
 
-        return points, converged
+        # Final estimated intersection points.
+        final_points = origins + t.unsqueeze(-1) * directions
+
+        return final_points, converged

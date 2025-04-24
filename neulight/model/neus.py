@@ -77,7 +77,7 @@ class NeuSLightningModel(pl.LightningModule):
         normalized_points = points / self.normalize_factor
         gradient = self.SDF.gradient(normalized_points)
 
-        return F.normalize(gradient, p=2, dim=-1)
+        return F.normalize(-gradient, p=2, dim=-1)
 
     def sphere_tracing(
         self, rays: torch.Tensor, num_steps: int = 100
@@ -97,7 +97,7 @@ class NeuSLightningModel(pl.LightningModule):
         normalized_points, mask = self.SDF.sphere_trace(
             normalized_rays.view(-1, 6),
             num_steps=num_steps,
-            max_dist=self.ray_sampler.max_distance / self.normalize_factor,
+            max_distance=self.ray_sampler.max_distance / self.normalize_factor,
         )
 
         points = normalized_points * self.normalize_factor
@@ -185,7 +185,7 @@ class NeuSLightningModel(pl.LightningModule):
         _rays = rays.view(-1, 6)
 
         # chunk the rays
-        num_chunks = math.ceil(_rays.shape[0] // chunk_size)
+        num_chunks = max(1, math.ceil(_rays.shape[0] // chunk_size))
         ray_chunks = torch.chunk(_rays, num_chunks, dim=0)
 
         rendered_colors = []

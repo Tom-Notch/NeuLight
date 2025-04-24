@@ -59,7 +59,7 @@ class HarmonicEmbedding(nn.Module):
         """
         assert (
             x.shape[-1] == self.in_channels
-        ), f"Input shape must match in_channels, input has {x.shape[-1]} channels and {self.in_channels} in_channels"
+        ), f"Input shape must match in_channels, input has {x.shape[-1]} channels, expect {self.in_channels} in_channels"
 
         if self.L == 0:
             return x if self.include_x else x.new_empty((*x.shape[:-1], 0))

@@ -49,6 +49,7 @@ Issues = "https://github.com/Tom-Notch/NeuLight/issues"
 
 [project.scripts]
 neus = "neulight.neus:main"
+neureflect = "neulight.neureflect:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

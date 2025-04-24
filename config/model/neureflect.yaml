@@ -4,6 +4,9 @@ lr: 0.001
 
 num_vis: -1 # number of image to visualize in every validation epoch
 
-neus: ./neus.yaml
+surface_render_offset: 0.1
+num_incident_rays: 16
+query_color_chunk_size: 10000
 
+neus: ./neus.yaml
 BRDF: ./BRDF.yaml
