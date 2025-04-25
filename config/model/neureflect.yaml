@@ -8,5 +8,9 @@ surface_render_offset: 0.1
 num_incident_rays: 16
 query_color_chunk_size: 10000
 
+normalize_factor: 20.0 # normalize before feeding into SDF network
+
 neus: ./neus.yaml
 BRDF: ./BRDF.yaml
+
+# checkpoint: ../../checkpoints/neureflect/epoch=75-step=6156.ckpt

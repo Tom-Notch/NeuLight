@@ -70,6 +70,8 @@ class SDF(nn.Module):
         Returns:
             grads (torch.Tensor): (..., 3)
         """
+        has_grad = torch.is_grad_enabled()
+
         with torch.enable_grad():
             x = x.clone().detach().requires_grad_(True)
             y = self(x)
@@ -79,8 +81,9 @@ class SDF(nn.Module):
                 outputs=y,
                 inputs=x,
                 grad_outputs=torch.ones_like(y),
-                create_graph=True,
-                retain_graph=True,
+                create_graph=has_grad,
+                retain_graph=has_grad,
+                only_inputs=True,
             )[0]
 
         return grads

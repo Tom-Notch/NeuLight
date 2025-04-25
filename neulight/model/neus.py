@@ -77,7 +77,7 @@ class NeuSLightningModel(pl.LightningModule):
         normalized_points = points / self.normalize_factor
         gradient = self.SDF.gradient(normalized_points)
 
-        return F.normalize(-gradient, p=2, dim=-1)
+        return F.normalize(gradient, p=2, dim=-1)
 
     def sphere_tracing(
         self, rays: torch.Tensor, num_steps: int = 100

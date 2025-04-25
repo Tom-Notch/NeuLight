@@ -43,6 +43,8 @@ class NeuReflectLightningModel(pl.LightningModule):
         self.num_incident_rays = config["num_incident_rays"]
         self.query_color_chunk_size = config["query_color_chunk_size"]
 
+        self.normalize_factor = config["normalize_factor"]
+
         if config.get("checkpoint", None) is not None:
             self.load_state_dict(config["checkpoint"]["state_dict"])
 
@@ -145,10 +147,16 @@ class NeuReflectLightningModel(pl.LightningModule):
             # sphere tracing to get hit points
             hit_points, hit_masks = self.neus.sphere_tracing(_rays)  # (N, 3), (N,)
 
-            # extract normals
-            normals = torch.zeros_like(hit_points, device=device)  # (N, 3)
-            normals[hit_masks] = self.neus.normal(hit_points[hit_masks])  # (N', 3)
+            detect_nan(hit_points, "hit_points")
+            detect_nan(hit_masks, "hit_masks")
 
+        # extract normals
+        normals = torch.zeros_like(hit_points, device=device)  # (N, 3)
+        normals[hit_masks] = self.neus.normal(hit_points[hit_masks])  # (N', 3)
+
+        detect_nan(normals, "normals")
+
+        with torch.no_grad():
             # offset the hit_points a bit along normals to avoid self shadowing
             shifted_hit_points = (
                 hit_points + normals * self.surface_render_offset
@@ -161,15 +169,21 @@ class NeuReflectLightningModel(pl.LightningModule):
                 self.num_incident_rays,
             )  # (N', K, 6), (N', K)
 
+            detect_nan(incident_rays, "incident_rays")
+            detect_nan(incident_pdf, "incident_pdf")
+
             # incident color
             incident_colors = self.neus.chunk_forward(
                 incident_rays,
                 self.query_color_chunk_size,
             )  # (N', K, 3)
 
+            detect_nan(incident_colors, "incident_colors")
+
         valid_hit_points = (
             hit_points[hit_masks].unsqueeze(-2).expand(-1, self.num_incident_rays, 3)
         )  # (N', K, 3)
+        normalized_valid_hit_points = valid_hit_points / self.normalize_factor
         valid_normals = (
             normals[hit_masks].unsqueeze(-2).expand(-1, self.num_incident_rays, 3)
         )  # (N', K, 3)
@@ -179,11 +193,12 @@ class NeuReflectLightningModel(pl.LightningModule):
         )  # (N', K, 3)
 
         reflectance = self.BRDF(
-            valid_hit_points,
-            valid_normals,
+            normalized_valid_hit_points,
             valid_incident_directions,
             valid_outgoing_directions,
         )  # (N', num_incident_rays, 3)
+
+        detect_nan(reflectance, "reflectance")
 
         # 4) Monte Carlo one-bounce: Lo = E[ fr * Li * (n·wi) / pdf ]
         cos_theta = (
@@ -195,6 +210,10 @@ class NeuReflectLightningModel(pl.LightningModule):
         outgoing_colors = (reflectance * incident_colors * weights).mean(
             dim=1
         )  # (N', 3)
+
+        detect_nan(cos_theta, "cos_theta")
+        detect_nan(weights, "weights")
+        detect_nan(outgoing_colors, "outgoing_colors")
 
         colors = torch.zeros((_rays.shape[0], 3), device=device)  # (N, 3)
         colors[hit_masks] = outgoing_colors
@@ -213,7 +232,7 @@ class NeuReflectLightningModel(pl.LightningModule):
         Args:
             predict_colors (torch.Tensor): Predicted colors, batch_value of shape (B, N, 3)
             gt_colors (torch.Tensor): Ground truth colors, batch_value of shape (B, N, 3)
-            masks (torch.Tensor):
+            masks (torch.Tensor): in shape (B, N)
 
         Returns:
             torch.Tensor: The loss.
@@ -236,7 +255,6 @@ class NeuReflectLightningModel(pl.LightningModule):
             gt_colors=batch["labels"]["colors"],
             masks=masks,
         )
-        loss = loss.contiguous()
 
         with torch.no_grad():
             self.log(
