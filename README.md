@@ -18,3 +18,20 @@ conda activate neulight
 ```Shell
 pip install -e .
 ```
+
+## Dataset
+
+- [Free Viewpoint](https://repo-sam.inria.fr/fungraph/deep-indoor-relight/)
+
+### Folder Structure
+
+```Shell
+❯ tree -dh data/neulight
+data/neulight
+└── [4.0K]  Salon2
+    └── [4.0K]  scene_share
+        ├── [4.0K]  cameras
+        ├── [ 36K]  images
+        ├── [4.0K]  lightings
+        └── [4.0K]  meshes
+```
